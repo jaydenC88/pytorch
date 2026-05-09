@@ -1195,13 +1195,18 @@ void MetalShaderLibrary::exec_binary_kernel(TensorIteratorBase& iter,
     }
   }
 
+  // Cast kernel variants are registered as `..._cast_{common_dtype}` (the
+  // post-promotion input type that the kernel template was instantiated
+  // with). For ops where output type matches the input type this happens
+  // to equal `out.scalar_type()`, but for ops with a different output dtype
+  // (e.g. comparison ops returning bool) we must use the common dtype.
+  const auto cast_suffix_type = scalarToMetalTypeString(iter.common_dtype());
   std::string kernel_name;
   if (use_scalar_kernel) {
     const auto& tensor_operand = scalar_on_lhs ? other : input;
     const auto lhs_suffix = scalar_on_lhs ? "_lhs" : "";
     if (cast_needed) {
-      kernel_name =
-          fmt::format("{}_dense_scalar{}_cast_{}{}", name, lhs_suffix, scalarToMetalTypeString(out), alpha_suffix);
+      kernel_name = fmt::format("{}_dense_scalar{}_cast_{}{}", name, lhs_suffix, cast_suffix_type, alpha_suffix);
     } else {
       kernel_name = fmt::format("{}_dense_scalar{}_{}_{}{}",
                                 name,
@@ -1213,11 +1218,8 @@ void MetalShaderLibrary::exec_binary_kernel(TensorIteratorBase& iter,
   } else if (use_broadcast_kernel) {
     const auto& tensor_operand = broadcast_on_lhs ? other : input;
     if (cast_needed) {
-      kernel_name = fmt::format("{}_dense_broadcast{}_cast_{}{}",
-                                name,
-                                broadcast_on_lhs ? "_rhs" : "",
-                                scalarToMetalTypeString(out),
-                                alpha_suffix);
+      kernel_name = fmt::format(
+          "{}_dense_broadcast{}_cast_{}{}", name, broadcast_on_lhs ? "_rhs" : "", cast_suffix_type, alpha_suffix);
     } else {
       kernel_name = fmt::format("{}_dense_broadcast{}_{}_{}{}",
                                 name,
@@ -1229,7 +1231,7 @@ void MetalShaderLibrary::exec_binary_kernel(TensorIteratorBase& iter,
   } else {
     // TODO: Implicitly pass both input and output types to non-cast kernels
     const auto suffix = iter.is_contiguous() ? (dense_ilp ? "dense_ilp" : "dense") : "strided";
-    kernel_name = cast_needed ? fmt::format("{}_{}_cast_{}{}", name, suffix, scalarToMetalTypeString(out), alpha_suffix)
+    kernel_name = cast_needed ? fmt::format("{}_{}_cast_{}{}", name, suffix, cast_suffix_type, alpha_suffix)
                               : fmt::format("{}_{}_{}_{}{}",
                                             name,
                                             suffix,
